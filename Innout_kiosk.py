@@ -113,7 +113,26 @@ class KioskApp:
         self.signup_error_label.grid(row=3, column=0, columnspan=2)
 
         tk.Button(self.root, text="Submit", command=self.sign_up).grid(row=4, column=0, columnspan=2)
-   
+    def sign_up(self):
+        user_id = self.signup_user_id_entry.get()
+        password = self.signup_password_entry.get()
+        confirm_password = self.signup_confirm_password_entry.get()
+
+        if "+" in user_id:
+            self.signup_error_label.config(text="User ID cannot contain '+' character.")
+            return
+
+        if password != confirm_password:
+            self.signup_error_label.config(text="Passwords do not match.")
+            return
+
+        # Save user credentials
+        with open(f"{user_id}.txt", 'w') as file:
+            file.write(password)
+
+        messagebox.showinfo("Sign Up Successful", "Account created successfully!")
+        self.create_login_widgets()
+    
     def load_previous_order(self):
         self.create_customize_widgets()
         if hasattr(self, 'previous_order_config'):
