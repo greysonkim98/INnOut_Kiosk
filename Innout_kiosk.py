@@ -125,6 +125,10 @@ class KioskApp:
         if password != confirm_password:
             self.signup_error_label.config(text="Passwords do not match.")
             return
+            # Check if user already exists
+        if os.path.exists(f"{user_id}.txt"):
+            self.signup_error_label.config(text="User ID already exists. Please choose a different ID.")
+            return
 
         # Save user credentials
         with open(f"{user_id}.txt", 'w') as file:
@@ -256,7 +260,7 @@ class KioskApp:
         user_id = self.user_id_entry.get()
         password = self.password_entry.get()
 
-        if user_id == "admin" and password == "asmin":
+        if user_id == "admin" and password == "admin":
             self.create_admin_widgets()
             return
 
@@ -296,20 +300,49 @@ class KioskApp:
     def create_admin_widgets(self):
         for widget in self.root.winfo_children():
             widget.destroy()
-
         tk.Label(self.root, text="Admin Panel: Order List").grid(row=0, column=0, columnspan=2)
-        row = 1
+        
+        # Create a scrollable frame for the order list
+        canvas = tk.Canvas(self.root)
+        scrollbar = tk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        row = 0
         for file in os.listdir():
-            if file.startswith(time.strftime('%Y%m%d')) and file.endswith('.txt') and not file.startswith('preferred_'):
-                tk.Label(self.root, text=file).grid(row=row, column=0)
-                tk.Button(self.root, text="Accept", command=lambda f=file: self.accept_order(f)).grid(row=row, column=1)
+            if file.endswith('.txt') and file[:14].isdigit() and not file.startswith('preferred_'):
+                tk.Label(scrollable_frame, text=file).grid(row=row, column=0, sticky="w")
+                tk.Button(scrollable_frame, text="View", command=lambda f=file: self.view_order(f)).grid(row=row, column=1)
                 row += 1
 
-    def accept_order(self, filename):
+        canvas.grid(row=1, column=0, sticky="nsew")
+        scrollbar.grid(row=1, column=1, sticky="ns")
+        
+        self.root.grid_rowconfigure(1, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+
+    def view_order(self, filename):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        with open(filename, 'r') as file:
+            order_details = file.read()
+        tk.Label(self.root, text=order_details).pack(pady=10)
+        tk.Button(self.root, text="Confirm", command=lambda: self.confirm_accept_order(filename)).pack(pady=10)
+        tk.Button(self.root, text="Back", command=self.create_admin_widgets).pack(pady=10)
+
+    def confirm_accept_order(self, filename):
         os.remove(filename)
         messagebox.showinfo("Order Accepted", f"Order {filename} has been accepted and removed.")
         self.create_admin_widgets()
-
 
 # Run the GUI application
 if __name__ == "__main__":
