@@ -16,6 +16,7 @@ class Authentication:
         # Simple encryption for demonstration (hashing card info)
         return hashlib.sha256((card_info + self.salt).encode()).hexdigest()
 
+
 class Burger:
     def __init__(self):
         self.bun = 'medium'
@@ -56,9 +57,9 @@ class Burger:
 
 
 class Order:
-    def __init__(self, order_id, customer_id):
+    def __init__(self, order_id, customer):
         self.order_id = order_id
-        self.customer_id = customer_id
+        self.customer = customer
         self.burgers = []
         self.status = 'Pending'
 
@@ -76,7 +77,7 @@ class Order:
     def store_order(self, filename, payment_info=None):
         # Store the order in a text file
         with open(filename, 'w') as file:
-            file.write(f"Burger Order for Customer ID {self.customer_id}\n")
+            file.write(f"Burger Order for Customer ID {self.customer.user_id}\n")
             for idx, burger in enumerate(self.burgers, start=1):
                 file.write(f"\nBurger {idx}:\n")
                 file.write(f"Bun: {burger.bun}\n")
@@ -93,19 +94,133 @@ class Order:
             if payment_info:
                 file.write(f"\nPayment Info (Encrypted): {payment_info}\n")
 
+
+class Payment:
+    def __init__(self, root, kiosk_app, order, authentication):
+        self.root = root
+        self.kiosk_app = kiosk_app
+        self.order = order
+        self.authentication = authentication
+        self.create_payment_page()
+
+    def create_payment_page(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        tk.Label(self.root, text="Enter Card Information:").grid(row=0, column=0, columnspan=2)
+
+        tk.Label(self.root, text="Cardholder Name:").grid(row=1, column=0)
+        self.card_name_entry = tk.Entry(self.root)
+        self.card_name_entry.grid(row=1, column=1)
+
+        tk.Label(self.root, text="Card Number:").grid(row=2, column=0)
+        self.card_number_entry = tk.Entry(self.root)
+        self.card_number_entry.grid(row=2, column=1)
+
+        tk.Label(self.root, text="Security Number:").grid(row=3, column=0)
+        self.card_security_entry = tk.Entry(self.root)
+        self.card_security_entry.grid(row=3, column=1)
+
+        tk.Button(self.root, text="Pay and Place Order", command=self.confirm_order).grid(row=4, column=0, columnspan=2)
+        tk.Button(self.root, text="Back", command=self.kiosk_app.create_customize_widgets).grid(row=5, column=0, columnspan=2)
+
+    def confirm_order(self):
+        card_name = self.card_name_entry.get()
+        card_number = self.card_number_entry.get()
+        security_number = self.card_security_entry.get()
+
+        if len(card_number) != 16 or not card_number.isdigit() or len(security_number) != 3 or not security_number.isdigit():
+            messagebox.showerror("Error", "Invalid card details. Please check again.")
+            return
+
+        payment_info = f"Card Name: {card_name}, Card Number: {card_number}, Security Number: {security_number}"
+        encrypted_payment_info = self.authentication.encrypt_payment_info(payment_info)
+
+        filename = f"{time.strftime('%Y%m%d%H%M%S')}_{self.order.customer.user_id}.txt"
+        
+        self.order.confirm_order()
+        self.order.store_order(filename, encrypted_payment_info)
+
+        messagebox.showinfo("Order Confirmed", f"Your order number {self.order.order_id} has been confirmed successfully!")
+        self.kiosk_app.increment_order_number()  # Increment order number
+        self.kiosk_app.burger = None
+        self.kiosk_app.burgers = None
+        self.kiosk_app.create_order_widgets()
+
+
+class AdminPanel:
+    def __init__(self, root, kiosk_app):
+        self.root = root
+        self.kiosk_app = kiosk_app
+        self.create_admin_widgets()
+
+    def create_admin_widgets(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        tk.Label(self.root, text="Admin Panel: Order List").grid(row=0, column=0, columnspan=2)
+        
+        # Create a scrollable frame for the order list
+        canvas = tk.Canvas(self.root)
+        scrollbar = tk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        row = 0
+        for file in os.listdir():
+            if file.endswith('.txt') and file[:14].isdigit() and not file.startswith('preferred_'):
+                tk.Label(scrollable_frame, text=file).grid(row=row, column=0, sticky="w")
+                tk.Button(scrollable_frame, text="View", command=lambda f=file: self.view_order(f)).grid(row=row, column=1)
+                row += 1
+
+        canvas.grid(row=1, column=0, sticky="nsew")
+        scrollbar.grid(row=1, column=1, sticky="ns")
+        
+        self.root.grid_rowconfigure(1, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+
+    def view_order(self, filename):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        with open(filename, 'r') as file:
+            order_details = file.read()
+        tk.Label(self.root, text=order_details).pack(pady=10)
+        tk.Button(self.root, text="Confirm", command=lambda: self.confirm_accept_order(filename)).pack(pady=10)
+        tk.Button(self.root, text="Back", command=self.create_admin_widgets).pack(pady=10)
+
+    def confirm_accept_order(self, filename):
+        os.remove(filename)
+        messagebox.showinfo("Order Accepted", f"Order {filename} has been accepted and removed.")
+        self.create_admin_widgets()
+
+
+class Customer:
+    def __init__(self, user_id, password):
+        self.user_id = user_id
+        self.password = password
+
+
 class KioskApp:
     def __init__(self, root):
         self.root = root
         self.root.title("In-N-Out Kiosk System")
         self.burger = None
-        self.customer_id = None
+        self.customer = None
         self.order_number = 1
         self.order = None
         self.authentication = Authentication()
         self.create_login_widgets()
         
 
-# Authentication(sign in, sign up)
+    # Authentication(sign in, sign up)
     def create_login_widgets(self):
         for widget in self.root.winfo_children():
             widget.destroy()
@@ -174,7 +289,7 @@ class KioskApp:
         password = self.password_entry.get()
 
         if user_id == "admin" and password == "admin":
-            self.create_admin_widgets()
+            AdminPanel(self.root, self)
             return
 
         if not os.path.exists(f"{user_id}.txt"):
@@ -188,11 +303,11 @@ class KioskApp:
             messagebox.showerror("Error", "Incorrect password.")
             return
 
-        self.customer_id = user_id
-        self.order = Order(order_id=self.order_number, customer_id=self.customer_id)
+        self.customer = Customer(user_id, password)
+        self.order = Order(order_id=self.order_number, customer=self.customer)
         self.create_order_widgets()
 
-# 1. Selection Customize or Load Preferred Order        
+    # 1. Selection Customize or Load Preferred Order        
     def create_order_widgets(self):
         for widget in self.root.winfo_children():
             widget.destroy()
@@ -304,34 +419,11 @@ class KioskApp:
         # Add button to order more burgers
         tk.Button(self.root, text="Order More", command=self.create_customize_widgets).grid(row=1, column=0, columnspan=2)
         # Confirm button
-        tk.Button(self.root, text="Confirm Order", command=self.create_payment_page).grid(row=2, column=0, columnspan=2)
+        tk.Button(self.root, text="Confirm Order", command=lambda: Payment(self.root, self, self.order, self.authentication)).grid(row=2, column=0, columnspan=2)
         # Back button
         tk.Button(self.root, text="Back", command=self.create_customize_widgets).grid(row=3, column=0, columnspan=2)
 
-
-# 2. Payment
-    def create_payment_page(self):
-        for widget in self.root.winfo_children():
-            widget.destroy()
-
-        tk.Label(self.root, text="Enter Card Information:").grid(row=0, column=0, columnspan=2)
-
-        tk.Label(self.root, text="Cardholder Name:").grid(row=1, column=0)
-        self.card_name_entry = tk.Entry(self.root)
-        self.card_name_entry.grid(row=1, column=1)
-
-        tk.Label(self.root, text="Card Number:").grid(row=2, column=0)
-        self.card_number_entry = tk.Entry(self.root)
-        self.card_number_entry.grid(row=2, column=1)
-
-        tk.Label(self.root, text="Security Number:").grid(row=3, column=0)
-        self.card_security_entry = tk.Entry(self.root)
-        self.card_security_entry.grid(row=3, column=1)
-
-        tk.Button(self.root, text="Pay and Place Order", command=self.confirm_order).grid(row=4, column=0, columnspan=2)
-        tk.Button(self.root, text="Back", command=self.create_customize_widgets).grid(row=5, column=0, columnspan=2)
-
-# Order Number
+    # Order Number
     def get_order_number(self):
         if not os.path.exists("order_number.txt"):
             with open("order_number.txt", 'w') as file:
@@ -346,91 +438,6 @@ class KioskApp:
         with open("order_number.txt", 'a') as file:
             file.write(f"{self.order_number}\n")
 
-    def confirm_order(self):
-        card_name = self.card_name_entry.get()
-        card_number = self.card_number_entry.get()
-        security_number = self.card_security_entry.get()
-
-        if len(card_number) != 16 or not card_number.isdigit() or len(security_number) != 3 or not security_number.isdigit():
-            messagebox.showerror("Error", "Invalid card details. Please check again.")
-            return
-
-        payment_info = f"Card Name: {card_name}, Card Number: {card_number}, Security Number: {security_number}"
-        encrypted_payment_info = self.authentication.encrypt_payment_info(payment_info)
-
-        filename = f"{time.strftime('%Y%m%d%H%M%S')}_{self.customer_id}.txt"
-        
-        self.order.confirm_order()
-        self.order.store_order(filename, encrypted_payment_info)
-
-        messagebox.showinfo("Order Confirmed", f"Your order number {self.order_number} has been confirmed successfully!")
-        self.increment_order_number()  # Increment order number
-        self.burger = None
-        self.burgers = None
-        self.create_order_widgets()
-
-
-
-    def load_preferred_order(self):
-        filename = f"preferred_{self.customer_id}.txt"
-        if not os.path.exists(filename):
-            messagebox.showinfo("No Preferred Order", "No preferred order found. Please create one.")
-            self.create_customize_widgets()
-            return
-
-        with open(filename, 'r') as file:
-            order_details = file.read()
-            messagebox.showinfo("Preferred Order Loaded", order_details)
-            self.create_order_widgets()
-
-# 3 Administrator
-    def create_admin_widgets(self):
-        for widget in self.root.winfo_children():
-            widget.destroy()
-        tk.Label(self.root, text="Admin Panel: Order List").grid(row=0, column=0, columnspan=2)
-        
-        # Create a scrollable frame for the order list
-        canvas = tk.Canvas(self.root)
-        scrollbar = tk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(
-                scrollregion=canvas.bbox("all")
-            )
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        row = 0
-        for file in os.listdir():
-            if file.endswith('.txt') and file[:14].isdigit() and not file.startswith('preferred_'):
-                tk.Label(scrollable_frame, text=file).grid(row=row, column=0, sticky="w")
-                tk.Button(scrollable_frame, text="View", command=lambda f=file: self.view_order(f)).grid(row=row, column=1)
-                row += 1
-
-        canvas.grid(row=1, column=0, sticky="nsew")
-        scrollbar.grid(row=1, column=1, sticky="ns")
-        
-        self.root.grid_rowconfigure(1, weight=1)
-        self.root.grid_columnconfigure(0, weight=1)
-
-    def view_order(self, filename):
-        for widget in self.root.winfo_children():
-            widget.destroy()
-        with open(filename, 'r') as file:
-            order_details = file.read()
-        tk.Label(self.root, text=order_details).pack(pady=10)
-        tk.Button(self.root, text="Confirm", command=lambda: self.confirm_accept_order(filename)).pack(pady=10)
-        tk.Button(self.root, text="Back", command=self.create_admin_widgets).pack(pady=10)
-
-    def confirm_accept_order(self, filename):
-        os.remove(filename)
-        messagebox.showinfo("Order Accepted", f"Order {filename} has been accepted and removed.")
-        self.create_admin_widgets()
-        
 
 # Run the GUI application
 if __name__ == "__main__":
