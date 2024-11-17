@@ -2,7 +2,19 @@ import tkinter as tk
 from tkinter import messagebox
 import os
 import time
+import hashlib
 
+
+class Authentication:
+    def __init__(self):
+        self.salt = "salt and pepper"  # Static salt for simplicity, could be more sophisticated
+
+    def encrypt_password(self, password):
+        return hashlib.sha256((password + self.salt).encode()).hexdigest()
+
+    def encrypt_payment_info(self, card_info):
+        # Simple encryption for demonstration (hashing card info)
+        return hashlib.sha256((card_info + self.salt).encode()).hexdigest()
 
 class Burger:
     def __init__(self):
@@ -44,31 +56,42 @@ class Burger:
 
 
 class Order:
-    def __init__(self, order_id, customer_id, burger):
+    def __init__(self, order_id, customer_id):
         self.order_id = order_id
         self.customer_id = customer_id
-        self.burger = burger
+        self.burgers = []
         self.status = 'Pending'
 
     def confirm_order(self):
         # Confirm the order
         self.status = 'Confirmed'
+    
+    def add_burger(self, burger):
+        self.burgers.append(burger)
 
-    def store_order(self, filename):
+    def get_total_order_price(self):
+        total_price = sum(burger.get_total_price() for burger in self.burgers)
+        return total_price
+
+    def store_order(self, filename, payment_info=None):
         # Store the order in a text file
         with open(filename, 'w') as file:
             file.write(f"Burger Order for Customer ID {self.customer_id}\n")
-            file.write(f"Bun: {self.burger.bun}\n")
-            file.write(f"Cheese: {self.burger.cheese}\n")
-            file.write(f"Patties: {self.burger.patty}\n")
-            file.write(f"Grilled Onion: {self.burger.griled_onion}\n")
-            file.write(f"Raw Onion: {self.burger.raw_onion}\n")
-            file.write(f"Pickle: {self.burger.pickle}\n")
-            file.write(f"Lettuce: {self.burger.lettuce}\n")
-            file.write(f"Spread: {self.burger.spread}\n")
-            file.write(f"Tomato: {self.burger.tomato}\n")
-            file.write(f"Total Price: ${self.burger.get_total_price():.2f}\n")
-
+            for idx, burger in enumerate(self.burgers, start=1):
+                file.write(f"\nBurger {idx}:\n")
+                file.write(f"Bun: {burger.bun}\n")
+                file.write(f"Cheese: {burger.cheese}\n")
+                file.write(f"Patties: {burger.patty}\n")
+                file.write(f"Grilled Onion: {burger.griled_onion}\n")
+                file.write(f"Raw Onion: {burger.raw_onion}\n")
+                file.write(f"Pickle: {burger.pickle}\n")
+                file.write(f"Lettuce: {burger.lettuce}\n")
+                file.write(f"Spread: {burger.spread}\n")
+                file.write(f"Tomato: {burger.tomato}\n")
+                file.write(f"Price: ${burger.get_total_price():.2f}\n")
+            file.write(f"\nTotal Order Price: ${self.get_total_order_price():.2f}\n")
+            if payment_info:
+                file.write(f"\nPayment Info (Encrypted): {payment_info}\n")
 
 class KioskApp:
     def __init__(self, root):
@@ -76,8 +99,13 @@ class KioskApp:
         self.root.title("In-N-Out Kiosk System")
         self.burger = None
         self.customer_id = None
+        self.order_number = 1
+        self.order = None
+        self.authentication = Authentication()
         self.create_login_widgets()
+        
 
+# Authentication(sign in, sign up)
     def create_login_widgets(self):
         for widget in self.root.winfo_children():
             widget.destroy()
@@ -113,6 +141,8 @@ class KioskApp:
         self.signup_error_label.grid(row=3, column=0, columnspan=2)
 
         tk.Button(self.root, text="Submit", command=self.sign_up).grid(row=4, column=0, columnspan=2)
+        tk.Button(self.root, text="Back", command=self.create_login_widgets).grid(row=5, column=0, columnspan=2)
+
     def sign_up(self):
         user_id = self.signup_user_id_entry.get()
         password = self.signup_password_entry.get()
@@ -125,18 +155,52 @@ class KioskApp:
         if password != confirm_password:
             self.signup_error_label.config(text="Passwords do not match.")
             return
-            # Check if user already exists
+
+        # Check if user already exists
         if os.path.exists(f"{user_id}.txt"):
             self.signup_error_label.config(text="User ID already exists. Please choose a different ID.")
             return
 
-        # Save user credentials
+        # Save user credentials (encrypted)
+        encrypted_password = self.authentication.encrypt_password(password)
         with open(f"{user_id}.txt", 'w') as file:
-            file.write(password)
+            file.write(encrypted_password)
 
         messagebox.showinfo("Sign Up Successful", "Account created successfully!")
         self.create_login_widgets()
-    
+
+    def sign_in(self):
+        user_id = self.user_id_entry.get()
+        password = self.password_entry.get()
+
+        if user_id == "admin" and password == "admin":
+            self.create_admin_widgets()
+            return
+
+        if not os.path.exists(f"{user_id}.txt"):
+            messagebox.showerror("Error", "User ID not found.")
+            return
+
+        with open(f"{user_id}.txt", 'r') as file:
+            stored_password = file.read().strip()
+
+        if self.authentication.encrypt_password(password) != stored_password:
+            messagebox.showerror("Error", "Incorrect password.")
+            return
+
+        self.customer_id = user_id
+        self.order = Order(order_id=self.order_number, customer_id=self.customer_id)
+        self.create_order_widgets()
+
+# 1. Selection Customize or Load Preferred Order        
+    def create_order_widgets(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        tk.Button(self.root, text="Customize Burger", command=self.create_customize_widgets).grid(row=0, column=0, columnspan=2)
+        tk.Button(self.root, text="Load Preferred Order", command=self.load_previous_order).grid(row=1, column=0, columnspan=2)
+        tk.Button(self.root, text="Back", command=self.create_login_widgets).grid(row=2, column=0, columnspan=2)
+
     def load_previous_order(self):
         self.create_customize_widgets()
         if hasattr(self, 'previous_order_config'):
@@ -185,7 +249,8 @@ class KioskApp:
             btn.pack(fill=tk.X, pady=5)
             
         # Order button
-        tk.Button(self.root, text="Order", command=self.place_order).grid(row=len(ingredients), column=0, columnspan=2)
+        tk.Button(self.root, text="Order", command=self.display_order_summary).grid(row=len(ingredients), column=0, columnspan=2)
+        tk.Button(self.root, text="Back", command=self.create_order_widgets).grid(row=len(ingredients) + 1, column=0, columnspan=2)
     
     def apply_preset(self, config):
         for key, value in config.items():
@@ -208,82 +273,103 @@ class KioskApp:
             else:
                 widget.config(bg='lightgray')
 
-    def place_order(self):
+    def display_order_summary(self):
+        self.order.add_burger(self.burger)  # Add current burger to the order
         for widget in self.root.winfo_children():
             widget.destroy()
-        self.previous_order_config = {
-            'bun': self.burger.bun,
-            'cheese': self.burger.cheese,
-            'patty': self.burger.patty,
-            'griled_onion': self.burger.griled_onion,
-            'raw_onion': self.burger.raw_onion,
-            'pickle': self.burger.pickle,
-            'lettuce': self.burger.lettuce,
-            'spread': self.burger.spread,
-            'tomato': self.burger.tomato
-        }
 
-        # Display the customized burger summary using a loop
+        # Display the summary of all burgers in the order
         summary_text = "Burger Order Summary:\n\n"
-        attributes = [
-            ("Bun", self.burger.bun),
-            ("Cheese", self.burger.cheese),
-            ("Patties", self.burger.patty),
-            ("Grilled Onion", self.burger.griled_onion),
-            ("Raw Onion", self.burger.raw_onion),
-            ("Pickle", self.burger.pickle),
-            ("Lettuce", self.burger.lettuce),
-            ("Spread", self.burger.spread),
-            ("Tomato", self.burger.tomato)
-        ]
-        for attr_name, attr_value in attributes:
-            summary_text += f"{attr_name}: {attr_value}\n"
-        summary_text += f"\nTotal Price: ${self.burger.get_total_price():.2f}\n"
+        for idx, burger in enumerate(self.order.burgers, start=1):
+            summary_text += f"Burger {idx}:\n"
+            attributes = [
+                ("Bun", burger.bun),
+                ("Cheese", burger.cheese),
+                ("Patties", burger.patty),
+                ("Grilled Onion", burger.griled_onion),
+                ("Raw Onion", burger.raw_onion),
+                ("Pickle", burger.pickle),
+                ("Lettuce", burger.lettuce),
+                ("Spread", burger.spread),
+                ("Tomato", burger.tomato)
+            ]
+            for attr_name, attr_value in attributes:
+                summary_text += f"{attr_name}: {attr_value}\n"
+            summary_text += f"Total Price: ${burger.get_total_price():.2f}\n\n"
+
+        summary_text += f"Total Order Price: ${self.order.get_total_order_price() * 1.1:.2f}\n"
 
         tk.Label(self.root, text=summary_text).grid(row=0, column=0, columnspan=2)
 
+        # Add button to order more burgers
+        tk.Button(self.root, text="Order More", command=self.create_customize_widgets).grid(row=1, column=0, columnspan=2)
         # Confirm button
-        tk.Button(self.root, text="Confirm", command=self.confirm_order).grid(row=1, column=0, columnspan=2)
+        tk.Button(self.root, text="Confirm Order", command=self.create_payment_page).grid(row=2, column=0, columnspan=2)
+        # Back button
+        tk.Button(self.root, text="Back", command=self.create_customize_widgets).grid(row=3, column=0, columnspan=2)
 
-        # Back button to go back to customization
-        tk.Button(self.root, text="Back", command=self.load_previous_order).grid(row=2, column=0, sticky="w")
 
-    def confirm_order(self):
-        filename = f"{time.strftime('%Y%m%d%H%M%S')}_{self.customer_id}.txt"
-        order = Order(order_id=1, customer_id=self.customer_id, burger=self.burger)
-        order.confirm_order()
-        order.store_order(filename)
-        messagebox.showinfo("Order Confirmed", "Your order has been confirmed successfully!")
-        self.create_order_widgets()
-
-    def sign_in(self):
-        user_id = self.user_id_entry.get()
-        password = self.password_entry.get()
-
-        if user_id == "admin" and password == "admin":
-            self.create_admin_widgets()
-            return
-
-        if not os.path.exists(f"{user_id}.txt"):
-            messagebox.showerror("Error", "User ID not found.")
-            return
-
-        with open(f"{user_id}.txt", 'r') as file:
-            stored_password = file.read().strip()
-
-        if password != stored_password:
-            messagebox.showerror("Error", "Incorrect password.")
-            return
-
-        self.customer_id = user_id
-        self.create_order_widgets()
-
-    def create_order_widgets(self):
+# 2. Payment
+    def create_payment_page(self):
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        tk.Button(self.root, text="Customize Burger", command=self.create_customize_widgets).grid(row=0, column=0, columnspan=2)
-        tk.Button(self.root, text="Load Preferred Order", command=self.load_previous_order).grid(row=1, column=0, columnspan=2)
+        tk.Label(self.root, text="Enter Card Information:").grid(row=0, column=0, columnspan=2)
+
+        tk.Label(self.root, text="Cardholder Name:").grid(row=1, column=0)
+        self.card_name_entry = tk.Entry(self.root)
+        self.card_name_entry.grid(row=1, column=1)
+
+        tk.Label(self.root, text="Card Number:").grid(row=2, column=0)
+        self.card_number_entry = tk.Entry(self.root)
+        self.card_number_entry.grid(row=2, column=1)
+
+        tk.Label(self.root, text="Security Number:").grid(row=3, column=0)
+        self.card_security_entry = tk.Entry(self.root)
+        self.card_security_entry.grid(row=3, column=1)
+
+        tk.Button(self.root, text="Pay and Place Order", command=self.confirm_order).grid(row=4, column=0, columnspan=2)
+        tk.Button(self.root, text="Back", command=self.create_customize_widgets).grid(row=5, column=0, columnspan=2)
+
+# Order Number
+    def get_order_number(self):
+        if not os.path.exists("order_number.txt"):
+            with open("order_number.txt", 'w') as file:
+                file.write("1\n")
+            return 1
+        else:
+            with open("order_number.txt", 'r') as file:
+                return int(file.readlines()[-1].strip())
+
+    def increment_order_number(self):
+        self.order_number += 1
+        with open("order_number.txt", 'a') as file:
+            file.write(f"{self.order_number}\n")
+
+    def confirm_order(self):
+        card_name = self.card_name_entry.get()
+        card_number = self.card_number_entry.get()
+        security_number = self.card_security_entry.get()
+
+        if len(card_number) != 16 or not card_number.isdigit() or len(security_number) != 3 or not security_number.isdigit():
+            messagebox.showerror("Error", "Invalid card details. Please check again.")
+            return
+
+        payment_info = f"Card Name: {card_name}, Card Number: {card_number}, Security Number: {security_number}"
+        encrypted_payment_info = self.authentication.encrypt_payment_info(payment_info)
+
+        filename = f"{time.strftime('%Y%m%d%H%M%S')}_{self.customer_id}.txt"
+        
+        self.order.confirm_order()
+        self.order.store_order(filename, encrypted_payment_info)
+
+        messagebox.showinfo("Order Confirmed", f"Your order number {self.order_number} has been confirmed successfully!")
+        self.increment_order_number()  # Increment order number
+        self.burger = None
+        self.burgers = None
+        self.create_order_widgets()
+
+
 
     def load_preferred_order(self):
         filename = f"preferred_{self.customer_id}.txt"
@@ -297,6 +383,7 @@ class KioskApp:
             messagebox.showinfo("Preferred Order Loaded", order_details)
             self.create_order_widgets()
 
+# 3 Administrator
     def create_admin_widgets(self):
         for widget in self.root.winfo_children():
             widget.destroy()
@@ -343,6 +430,7 @@ class KioskApp:
         os.remove(filename)
         messagebox.showinfo("Order Accepted", f"Order {filename} has been accepted and removed.")
         self.create_admin_widgets()
+        
 
 # Run the GUI application
 if __name__ == "__main__":
