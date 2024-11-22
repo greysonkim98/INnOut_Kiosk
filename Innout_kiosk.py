@@ -28,7 +28,7 @@ class Burger:
         self.lettuce = 1
         self.spread = 1
         self.tomato = 1
-        self.price = 5.00  # Base price
+        self.price = 3.19  # Base price
 
     def customize_burger(self, bun=None, cheese=None, patty=None, onion=None, pickle=None, lettuce=None, spread=None, tomato=None):
         if bun:
@@ -50,7 +50,7 @@ class Burger:
 
     def get_total_price(self):
         # Basic price calculation based on customization
-        self.price = 5.00 + (self.patty - 1) * 1.50
+        self.price = 3.50 + (self.patty -1) * 1.00 + (self.cheese) * 0.50
         if self.cheese == 'extra':
             self.price += 0.50
         return self.price
