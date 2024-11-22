@@ -190,11 +190,30 @@ class AdminPanel:
     def view_order(self, filename):
         for widget in self.root.winfo_children():
             widget.destroy()
+
+        # Create a scrollable frame for the order details
+        canvas = tk.Canvas(self.root)
+        scrollbar = tk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
         with open(filename, 'r') as file:
             order_details = file.read()
-        tk.Label(self.root, text=order_details).pack(pady=10)
-        tk.Button(self.root, text="Confirm", command=lambda: self.confirm_accept_order(filename)).pack(pady=10)
-        tk.Button(self.root, text="Back", command=self.create_admin_widgets).pack(pady=10)
+        tk.Label(scrollable_frame, text=order_details).pack(pady=10)
+        tk.Button(scrollable_frame, text="Confirm", command=lambda: self.confirm_accept_order(filename)).pack(pady=10)
+        tk.Button(scrollable_frame, text="Back", command=self.create_admin_widgets).pack(pady=10)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
     def confirm_accept_order(self, filename):
         os.remove(filename)
@@ -313,13 +332,18 @@ class KioskApp:
             widget.destroy()
 
         tk.Button(self.root, text="Customize Burger", command=self.create_customize_widgets).grid(row=0, column=0, columnspan=2)
-        tk.Button(self.root, text="Load Preferred Order", command=self.load_previous_order).grid(row=1, column=0, columnspan=2)
+        tk.Button(self.root, text="Load Preferred Order", command=self.load_prefer_order).grid(row=1, column=0, columnspan=2)
         tk.Button(self.root, text="Back", command=self.create_login_widgets).grid(row=2, column=0, columnspan=2)
 
-    def load_previous_order(self):
-        self.create_customize_widgets()
-        if hasattr(self, 'previous_order_config'):
-            self.apply_preset(self.previous_order_config)
+    def load_prefer_order(self):
+        prefer_filename = f"{self.customer.user_id}_prefer.txt"
+        if os.path.exists(prefer_filename):
+            with open(prefer_filename, 'r') as file:
+                config = eval(file.read())
+            self.create_customize_widgets()
+            self.apply_preset(config)
+        else:
+            messagebox.showerror("Error", "No preferred order found.")
 
     def create_customize_widgets(self):
         for widget in self.root.winfo_children():
@@ -337,6 +361,7 @@ class KioskApp:
             ("Spread:", 'spread', list(range(0, 6)), tk.IntVar(value=1)),
             ("Grilled Onion:", 'griled_onion', list(range(0, 6)), tk.IntVar(value=1)),
             ("Raw Onion:", 'raw_onion', list(range(0, 6)), tk.IntVar(value=1)),
+            ("Tomato:", 'tomato', list(range(0, 6)), tk.IntVar(value=1))
         ]
 
         for idx, (label_text, var_name, options, var) in enumerate(ingredients):
@@ -353,9 +378,9 @@ class KioskApp:
         preset_frame.grid(row=0, column=2, rowspan=len(ingredients), padx=20)
 
         presets = [
-            ("Ham Burger", {'bun': 'medium', 'cheese': 0, 'patty': 1, 'pickle': 3, 'lettuce': 3, 'spread': 3, 'griled_onion': 0, 'raw_onion': 1}),
-            ("Double Double", {'bun': 'medium', 'cheese': 2, 'patty': 2, 'pickle': 3, 'lettuce': 3, 'spread': 3, 'griled_onion': 0, 'raw_onion': 1}),
-            ("Cheese Burger", {'bun': 'medium', 'cheese': 1, 'patty': 1, 'pickle': 3, 'lettuce': 3, 'spread': 3, 'griled_onion': 0, 'raw_onion': 1})
+            ("Ham Burger", {'bun': 'medium', 'cheese': 0, 'patty': 1, 'pickle': 3, 'lettuce': 3, 'spread': 3, 'griled_onion': 0, 'raw_onion': 1, 'tomato': 1}),
+            ("Double Double", {'bun': 'medium', 'cheese': 2, 'patty': 2, 'pickle': 3, 'lettuce': 3, 'spread': 3, 'griled_onion': 0, 'raw_onion': 1, 'tomato': 1}),
+            ("Cheese Burger", {'bun': 'medium', 'cheese': 1, 'patty': 1, 'pickle': 3, 'lettuce': 3, 'spread': 3, 'griled_onion': 0, 'raw_onion': 1, 'tomato': 1})
         ]
 
         for preset, config in presets:
@@ -365,7 +390,8 @@ class KioskApp:
             
         # Order button
         tk.Button(self.root, text="Order", command=self.display_order_summary).grid(row=len(ingredients), column=0, columnspan=2)
-        tk.Button(self.root, text="Back", command=self.create_order_widgets).grid(row=len(ingredients) + 1, column=0, columnspan=2)
+        tk.Button(self.root, text="Back", command=self.reset_and_back_to_order_widgets).grid(row=len(ingredients) + 1, column=0, columnspan=2)
+        tk.Button(self.root, text="Save Preferred Order", command=self.save_preferred_order).grid(row=len(ingredients) + 2, column=0, columnspan=2)
     
     def apply_preset(self, config):
         for key, value in config.items():
@@ -379,6 +405,7 @@ class KioskApp:
 
     def button_click(self, value, var_name, frame):
         getattr(self, f"{var_name}_var").set(value)
+        setattr(self.burger, var_name, value)
         self.update_button_color(frame, value)
 
     def update_button_color(self, frame, selected_value):
@@ -388,10 +415,54 @@ class KioskApp:
             else:
                 widget.config(bg='lightgray')
 
+    def reset_and_back_to_order_widgets(self):
+        self.burger = None
+        self.create_order_widgets()
+
+    def save_preferred_order(self):
+        config = {
+            'bun': self.burger.bun,
+            'cheese': self.burger.cheese,
+            'patty': self.burger.patty,
+            'griled_onion': self.burger.griled_onion,
+            'raw_onion': self.burger.raw_onion,
+            'pickle': self.burger.pickle,
+            'lettuce': self.burger.lettuce,
+            'spread': self.burger.spread,
+            'tomato': self.burger.tomato
+        }
+        prefer_filename = f"{self.customer.user_id}_prefer.txt"
+        # Append to the existing preferences file or create a new one if it doesn't exist
+        if os.path.exists(prefer_filename):
+            with open(prefer_filename, 'r') as file:
+                existing_config = eval(file.read())
+                existing_config.update(config)
+            with open(prefer_filename, 'w') as file:
+                file.write(str(existing_config))
+        else:
+            with open(prefer_filename, 'w') as file:
+                file.write(str(config))
+        messagebox.showinfo("Preferred Order Saved", "Your preferred order has been saved successfully!")
+
     def display_order_summary(self):
         self.order.add_burger(self.burger)  # Add current burger to the order
         for widget in self.root.winfo_children():
             widget.destroy()
+
+        # Create a scrollable frame for the order summary
+        canvas = tk.Canvas(self.root)
+        scrollbar = tk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
 
         # Display the summary of all burgers in the order
         summary_text = "Burger Order Summary:\n\n"
@@ -414,14 +485,17 @@ class KioskApp:
 
         summary_text += f"Total Order Price: ${self.order.get_total_order_price() * 1.1:.2f}\n"
 
-        tk.Label(self.root, text=summary_text).grid(row=0, column=0, columnspan=2)
+        tk.Label(scrollable_frame, text=summary_text).pack(pady=10)
 
         # Add button to order more burgers
-        tk.Button(self.root, text="Order More", command=self.create_customize_widgets).grid(row=1, column=0, columnspan=2)
+        tk.Button(scrollable_frame, text="Order More", command=self.create_customize_widgets).pack(pady=10)
         # Confirm button
-        tk.Button(self.root, text="Confirm Order", command=lambda: Payment(self.root, self, self.order, self.authentication)).grid(row=2, column=0, columnspan=2)
+        tk.Button(scrollable_frame, text="Confirm Order", command=lambda: Payment(self.root, self, self.order, self.authentication)).pack(pady=10)
         # Back button
-        tk.Button(self.root, text="Back", command=self.create_customize_widgets).grid(row=3, column=0, columnspan=2)
+        tk.Button(scrollable_frame, text="Back", command=self.reset_and_back_to_order_widgets).pack(pady=10)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
     # Order Number
     def get_order_number(self):
